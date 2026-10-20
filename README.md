@@ -23,15 +23,23 @@
 - **前端**：Vue3, Element Plus, ECharts
 - **架构**：前后端分离（前端使用 CDN 引入，无需 Node.js 构建）
 
-## 🚀 本地运行指南
-1. 克隆本项目并进入目录： git clone <你的仓库地址>
-   cd inventory-bi/backend
-2. 创建并激活虚拟环境：python -m venv .venv
+## 🚀 本地运行指南 
+```bash
+1. 克隆本项目并进入目录：
+git clone <你的仓库地址>
+cd inventory-bi/backend
+2. 创建并激活虚拟环境：
+python -m venv .venv
 # Windows
 .venv\Scripts\activate
-3. 安装依赖：pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-4. 初始化数据：python seed.py
-5. 启动服务：uvicorn app.main:app --reload
+# Mac/Linux
+source .venv/bin/activate
+3.安装依赖：
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+4.初始化数据库与示例数据：
+python seed.py
+5.启动服务：
+uvicorn app.main:app --reload
+6. 浏览器访问：
 流程管理：http://127.0.0.1:8000/
-   · 分析看板：http://127.0.0.1:8000/dashboard.html
-   
+分析看板：http://127.0.0.1:8000/dashboard.html
