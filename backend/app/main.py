@@ -8,6 +8,53 @@ from . import models, schemas
 from .database import Base, engine, get_db
 
 Base.metadata.create_all(bind=engine)
+from .database import SessionLocal
+
+def init_db_if_empty():
+    db = SessionLocal()
+    try:
+        if db.query(models.Supplier).count() == 0:
+            print("检测到空数据库，正在自动初始化测试数据...")
+            
+            # 1. 初始化供应商
+            s1 = models.Supplier(name="华东办公用品", contact="张经理", expected_days=3)
+            s2 = models.Supplier(name="深圳数码供应链", contact="李经理", expected_days=5)
+            db.add_all([s1, s2])
+            db.commit()
+
+            # 2. 初始化商品
+            products = [
+                models.Product(name="A4复印纸", sku="P-A4", category="办公耗材", unit="包", safety_stock=20, price=22.0),
+                models.Product(name="中性笔", sku="P-PEN", category="办公耗材", unit="盒", safety_stock=50, price=3.5),
+                models.Product(name="无线鼠标", sku="P-MOUSE", category="数码配件", unit="个", safety_stock=15, price=59.0),
+                models.Product(name="机械键盘", sku="P-KB", category="数码配件", unit="个", safety_stock=10, price=199.0),
+                models.Product(name="显示器", sku="P-MON", category="数码设备", unit="台", safety_stock=8, price=899.0)
+            ]
+            db.add_all(products)
+            db.commit()
+
+            # 3. 初始化仓库
+            w1 = models.Warehouse(name="西安主仓", location="西安")
+            w2 = models.Warehouse(name="北京分仓", location="北京")
+            db.add_all([w1, w2])
+            db.commit()
+
+            # 4. 初始化库存
+            p = {x.sku: x for x in products}
+            inventory_rows = [
+                (w1, p["P-A4"], 50), (w1, p["P-PEN"], 80), (w1, p["P-MOUSE"], 25), (w1, p["P-KB"], 5), (w1, p["P-MON"], 12),
+                (w2, p["P-A4"], 10), (w2, p["P-PEN"], 30), (w2, p["P-MOUSE"], 8), (w2, p["P-KB"], 2), (w2, p["P-MON"], 3)
+            ]
+            for wh, product, qty in inventory_rows:
+                db.add(models.Inventory(warehouse_id=wh.id, product_id=product.id, quantity=qty))
+            db.commit()
+            print("测试数据初始化完成！")
+    except Exception as e:
+        print(f"初始化数据失败: {e}")
+    finally:
+        db.close()
+
+init_db_if_empty()
 app = FastAPI(title="小微零售进销存与库存分析")
 
 # ---------- 序列化工具 ----------
