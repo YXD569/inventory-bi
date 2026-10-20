@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>轻量进销存流程管理</title>
+  <link rel="stylesheet" href="https://cdn.staticfile.org/element-plus/2.3.14/index.css" />
+  <script src="https://cdn.staticfile.org/vue/3.3.4/vue.global.prod.js"></script>
+  <script src="https://cdn.staticfile.org/element-plus/2.3.14/index.full.min.js"></script>
+  <style>
+    body { margin: 0; background: #f5f7fa; font-family: Arial, "Microsoft YaHei", sans-serif; }
+    .header { display: flex; justify-content: space-between; align-items: center; background: #fff; padding: 0 24px; border-bottom: 1px solid #eee; }
+    .header h2 { margin: 0; font-size: 20px; }
+    .header a { color: #409eff; text-decoration: none; font-weight: bold; }
+    .el-card { margin-bottom: 16px; }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; margin-top: 10px; }
+    th, td { border: 1px solid #ebeef5; padding: 10px; }
+    th { background-color: #f5f7fa; font-weight: bold; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <el-container>
+    <el-header class="header">
+      <h2>轻量进销存流程管理</h2>
+      <a href="/dashboard.html">打开库存经营分析看板 →</a>
+    </el-header>
+
+    <el-main>
+      <el-tabs v-model="activeTab">
+        <!-- 1. 采购管理 -->
+        <el-tab-pane label="采购管理" name="purchase">
+          <el-card header="新建采购申请">
+            <el-form :inline="true">
+              <el-form-item label="供应商">
+                <el-select v-model="purchaseForm.supplier_id" placeholder="选择供应商" style="width: 180px">
+                  <el-option v-for="s in suppliers" :key="s.id" :label="s.name" :value="s.id" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="仓库">
+                <el-select v-model="purchaseForm.warehouse_id" placeholder="选择仓库" style="width: 160px">
+                  <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="商品">
+                <el-select v-model="purchaseForm.product_id" placeholder="选择商品" style="width: 180px">
+                  <el-option v-for="p in products" :key="p.id" :label="p.name" :value="p.id" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="数量">
+                <el-input-number v-model="purchaseForm.quantity" :min="1" />
+              </el-form-item>
+              <el-form-item label="单价">
+                <el-input-number v-model="purchaseForm.unit_price" :min="0" :precision="2" />
+              </el-form-item>
+              <el-form-item label="备注">
+                <el-input v-model="purchaseForm.remark" placeholder="可选" style="width: 160px" />
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" @click="createOrder">提交采购申请</el-button>
+              </el-form-item>
+            </el-form>
+          </el-card>
+
+          <el-card header="采购单列表">
+            <table>
+              <thead>
+                <tr><th>ID</th><th>供应商</th><th>仓库</th><th>采购明细</th><th>金额</th><th>状态</th><th>操作</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in orders" :key="row.id">
+                  <td>{{ row.id }}</td><td>{{ row.supplier_name }}</td><td>{{ row.warehouse_name }}</td>
+                  <td>{{ itemSummary(row) }}</td><td>¥{{ row.total_amount }}</td>
+                  <td>
+                    <span :style="{ color: row.status === 'PENDING_APPROVAL' ? '#e6a23c' : (row.status === 'APPROVED' ? '#409eff' : (row.status === 'REJECTED' ? '#f56c6c' : '#67c23a')), background: row.status === 'PENDING_APPROVAL' ? '#fdf6ec' : (row.status === 'APPROVED' ? '#ecf5ff' : (row.status === 'REJECTED' ? '#fef0f0' : '#f0f9eb')), padding: '4px 8px', borderRadius: '4px', fontSize: '12px' }">{{ statusText(row.status) }}</span>
+                  </td>
+                  <td>
+                    <el-button v-if="row.status === 'PENDING_APPROVAL'" type="success" size="small" @click="approve(row.id)">通过</el-button>
+                    <el-button v-if="row.status === 'PENDING_APPROVAL'" type="danger" size="small" @click="reject(row.id)">驳回</el-button>
+                    <el-button v-if="row.status === 'APPROVED'" type="primary" size="small" @click="receive(row.id)">确认入库</el-button>
+                    <span v-if="row.status === 'RECEIVED'" style="color: #909399; font-size: 12px;">已完成</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </el-card>
+        </el-tab-pane>
+
+        <!-- 2. 库存与订单查询 -->
+        <el-tab-pane label="库存查询" name="inventory">
+          <el-card :header="searchSupplierId ? '该供应商提供的商品订单明细' : '实时库存查询'">
+            
+            <div style="margin-bottom: 16px; background: #f8f9fa; padding: 12px; border-radius: 4px;">
+              <span style="font-weight: bold; margin-right: 10px;">按供应商查询：</span>
+              <el-select v-model="searchSupplierId" placeholder="选择供应商查看其供货订单" clearable style="width: 250px;">
+                <el-option v-for="s in suppliers" :key="s.id" :label="s.name" :value="s.id" />
+              </el-select>
+              <el-button type="primary" plain style="margin-left: 10px;" @click="searchSupplierId = null" v-if="searchSupplierId">重置查看全部库存</el-button>
+            </div>
+
+            <!-- 默认：全局库存表 -->
+            <table v-if="!searchSupplierId">
+              <thead>
+                <tr><th>仓库</th><th>商品</th><th>当前库存</th><th>安全库存</th><th>库存金额</th><th>状态</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in inventory" :key="row.id">
+                  <td>{{ row.warehouse_name }}</td><td>{{ row.product_name }}</td><td>{{ row.quantity }}</td><td>{{ row.safety_stock }}</td><td>¥{{ row.stock_value }}</td>
+                  <td>
+                    <span v-if="row.quantity < row.safety_stock" style="color: #f56c6c; background: #fef0f0; padding: 4px 8px; border-radius: 4px; font-size: 12px;">低于安全库存</span>
+                    <span v-else style="color: #67c23a; background: #f0f9eb; padding: 4px 8px; border-radius: 4px; font-size: 12px;">正常</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <!-- 筛选：供应商订单明细表 -->
+            <table v-else>
+              <thead>
+                <tr><th>采购单号</th><th>目标仓库</th><th>商品名称</th><th>采购数量</th><th>采购单价</th><th>订单状态</th><th>创建时间</th></tr>
+              </thead>
+              <tbody>
+                <template v-for="order in filteredOrdersBySupplier" :key="order.id">
+                  <tr v-for="(item, index) in order.items" :key="index">
+                    <td v-if="index === 0" :rowspan="order.items.length">PO-{{ order.id }}</td>
+                    <td v-if="index === 0" :rowspan="order.items.length">{{ order.warehouse_name }}</td>
+                    <td>{{ item.product_name }}</td>
+                    <td>{{ item.quantity }}</td>
+                    <td>¥{{ item.unit_price }}</td>
+                    <td v-if="index === 0" :rowspan="order.items.length">
+                      <span :style="{ color: order.status === 'PENDING_APPROVAL' ? '#e6a23c' : (order.status === 'APPROVED' ? '#409eff' : (order.status === 'REJECTED' ? '#f56c6c' : '#67c23a')) }">
+                        {{ statusText(order.status) }}
+                      </span>
+                    </td>
+                    <td v-if="index === 0" :rowspan="order.items.length">{{ order.created_at.replace('T', ' ').slice(0, 19) }}</td>
+                  </tr>
+                </template>
+                <tr v-if="filteredOrdersBySupplier.length === 0">
+                  <td colspan="7" style="text-align: center; color: #909399;">该供应商暂无采购订单</td>
+                </tr>
+              </tbody>
+            </table>
+          </el-card>
+        </el-tab-pane>
+
+        <!-- 3. 销售出库 -->
+        <el-tab-pane label="销售出库" name="sale">
+          <el-card header="销售出库">
+            <el-form :inline="true">
+              <el-form-item label="仓库">
+                <el-select v-model="saleForm.warehouse_id" style="width: 160px">
+                  <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="商品">
+                <el-select v-model="saleForm.product_id" style="width: 180px">
+                  <el-option v-for="p in products" :key="p.id" :label="p.name" :value="p.id" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="数量">
+                <el-input-number v-model="saleForm.quantity" :min="1" />
+              </el-form-item>
+              <el-form-item label="备注">
+                <el-input v-model="saleForm.note" placeholder="可选" style="width: 180px" />
+              </el-form-item>
+              <el-form-item>
+                <el-button type="warning" @click="saleOut">确认出库</el-button>
+              </el-form-item>
+            </el-form>
+          </el-card>
+        </el-tab-pane>
+
+        <!-- 4. 基础数据管理 -->
+        <el-tab-pane label="基础数据管理" name="base">
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-card header="供应商管理">
+                <el-button type="primary" size="small" @click="openBaseDialog('supplier')" style="margin-bottom: 10px;">+ 新增供应商</el-button>
+                <table>
+                  <thead><tr><th>名称</th><th>联系人</th><th>操作</th></tr></thead>
+                  <tbody>
+                    <tr v-for="s in suppliers" :key="s.id">
+                      <td>{{ s.name }}</td><td>{{ s.contact }}</td>
+                      <td>
+                        <a href="#" @click.prevent="openBaseDialog('supplier', s)" style="color: #409eff; margin-right: 10px;">编辑</a>
+                        <a href="#" @click.prevent="deleteBase('suppliers', s.id)" style="color: #f56c6c;">删除</a>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </el-card>
+            </el-col>
+            <el-col :span="12">
+              <el-card header="仓库管理">
+                <el-button type="primary" size="small" @click="openBaseDialog('warehouse')" style="margin-bottom: 10px;">+ 新增仓库</el-button>
+                <table>
+                  <thead><tr><th>名称</th><th>位置</th><th>操作</th></tr></thead>
+                  <tbody>
+                    <tr v-for="w in warehouses" :key="w.id">
+                      <td>{{ w.name }}</td><td>{{ w.location }}</td>
+                      <td>
+                        <a href="#" @click.prevent="openBaseDialog('warehouse', w)" style="color: #409eff; margin-right: 10px;">编辑</a>
+                        <a href="#" @click.prevent="deleteBase('warehouses', w.id)" style="color: #f56c6c;">删除</a>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </el-card>
+            </el-col>
+            <el-col :span="24">
+              <el-card header="商品管理" style="margin-top: 20px;">
+                <el-button type="primary" size="small" @click="openBaseDialog('product')" style="margin-bottom: 10px;">+ 新增商品</el-button>
+                <table>
+                  <thead><tr><th>SKU</th><th>名称</th><th>价格</th><th>安全库存</th><th>操作</th></tr></thead>
+                  <tbody>
+                    <tr v-for="p in products" :key="p.id">
+                      <td>{{ p.sku }}</td><td>{{ p.name }}</td><td>¥{{ p.price }}</td><td>{{ p.safety_stock }}</td>
+                      <td>
+                        <a href="#" @click.prevent="openBaseDialog('product', p)" style="color: #409eff; margin-right: 10px;">编辑</a>
+                        <a href="#" @click.prevent="deleteBase('products', p.id)" style="color: #f56c6c;">删除</a>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </el-card>
+            </el-col>
+          </el-row>
+        </el-tab-pane>
+      </el-tabs>
+    </el-main>
+  </el-container>
+
+  <!-- 基础数据弹窗 -->
+  <el-dialog v-model="baseDialogVisible" :title="baseDialogTitle" width="400px">
+    <el-form :model="baseForm" label-width="80px">
+      <template v-if="baseType === 'supplier'">
+        <el-form-item label="名称"><el-input v-model="baseForm.name" /></el-form-item>
+        <el-form-item label="联系人"><el-input v-model="baseForm.contact" /></el-form-item>
+        <el-form-item label="预计天数"><el-input-number v-model="baseForm.expected_days" :min="1" /></el-form-item>
+      </template>
+      <template v-if="baseType === 'warehouse'">
+        <el-form-item label="名称"><el-input v-model="baseForm.name" /></el-form-item>
+        <el-form-item label="位置"><el-input v-model="baseForm.location" /></el-form-item>
+      </template>
+      <template v-if="baseType === 'product'">
+        <el-form-item label="SKU"><el-input v-model="baseForm.sku" /></el-form-item>
+        <el-form-item label="名称"><el-input v-model="baseForm.name" /></el-form-item>
+        <el-form-item label="单价"><el-input-number v-model="baseForm.price" :min="0" :precision="2" /></el-form-item>
+        <el-form-item label="安全库存"><el-input-number v-model="baseForm.safety_stock" :min="0" /></el-form-item>
+      </template>
+    </el-form>
+    <template #footer>
+      <el-button @click="baseDialogVisible = false">取消</el-button>
+      <el-button type="primary" @click="saveBase">保存</el-button>
+    </template>
+  </el-dialog>
+</div>
+
+<script>
+const { createApp } = Vue;
+const { ElMessage } = ElementPlus;
+
+createApp({
+  data() {
+    return {
+      activeTab: "purchase",
+      suppliers: [], products: [], warehouses: [], orders: [], inventory: [],
+      searchSupplierId: null,
+      purchaseForm: { supplier_id: null, warehouse_id: null, product_id: null, quantity: 1, unit_price: 0, remark: "" },
+      saleForm: { warehouse_id: null, product_id: null, quantity: 1, note: "" },
+      baseDialogVisible: false, baseDialogTitle: "", baseType: "", baseForm: {}
+    };
+  },
+  computed: {
+    filteredOrdersBySupplier() {
+      if (!this.searchSupplierId) return [];
+      return this.orders.filter(o => o.supplier_id === this.searchSupplierId);
+    }
+  },
+  watch: {
+    'purchaseForm.product_id'(newVal) {
+      if (!newVal) return;
+      const product = this.products.find(p => p.id === newVal);
+      if (product) {
+        this.purchaseForm.unit_price = product.price;
+      }
+    }
+  },
+  mounted() { this.loadAll(); },
+  methods: {
+    async api(url, options = {}) {
+      const res = await fetch(url, { headers: { "Content-Type": "application/json" }, ...options });
+      if (!res.ok) throw new Error(await res.text());
+      return await res.json();
+    },
+    async loadAll() {
+      try {
+        this.suppliers = await this.api("/api/suppliers"); this.products = await this.api("/api/products"); this.warehouses = await this.api("/api/warehouses");
+        this.orders = await this.api("/api/purchase-orders"); this.inventory = await this.api("/api/inventory");
+        if (this.suppliers.length && !this.purchaseForm.supplier_id) this.purchaseForm.supplier_id = this.suppliers[0].id;
+        if (this.warehouses.length) { 
+          if (!this.purchaseForm.warehouse_id) this.purchaseForm.warehouse_id = this.warehouses[0].id; 
+          if (!this.saleForm.warehouse_id) this.saleForm.warehouse_id = this.warehouses[0].id; 
+        }
+        if (this.products.length) { 
+          if (!this.purchaseForm.product_id) {
+            this.purchaseForm.product_id = this.products[0].id; 
+            this.purchaseForm.unit_price = this.products[0].price;
+          }
+          if (!this.saleForm.product_id) this.saleForm.product_id = this.products[0].id; 
+        }
+      } catch (e) { ElMessage.error("加载失败"); }
+    },
+    async createOrder() {
+      try {
+        await this.api("/api/purchase-orders", { method: "POST", body: JSON.stringify({ supplier_id: this.purchaseForm.supplier_id, warehouse_id: this.purchaseForm.warehouse_id, remark: this.purchaseForm.remark, items: [{ product_id: this.purchaseForm.product_id, quantity: this.purchaseForm.quantity, unit_price: this.purchaseForm.unit_price }] }) });
+        ElMessage.success("已提交"); this.loadAll();
+      } catch (e) { ElMessage.error("提交失败"); }
+    },
+    async approve(id) { await this.api(`/api/purchase-orders/${id}/approve`, { method: "POST" }); ElMessage.success("已通过"); this.loadAll(); },
+    async reject(id) { await this.api(`/api/purchase-orders/${id}/reject`, { method: "POST" }); ElMessage.success("已驳回"); this.loadAll(); },
+    async receive(id) { await this.api(`/api/purchase-orders/${id}/receive`, { method: "POST" }); ElMessage.success("入库成功"); this.loadAll(); },
+    async saleOut() {
+      try { await this.api("/api/sales-out", { method: "POST", body: JSON.stringify(this.saleForm) }); ElMessage.success("出库成功"); this.loadAll(); } 
+      catch (e) { ElMessage.error("出库失败：库存可能不足"); }
+    },
+    itemSummary(row) { return (row.items || []).map(i => `${i.product_name} x${i.quantity}`).join("，"); },
+    statusText(status) { return { PENDING_APPROVAL: "待审批", APPROVED: "已审批", REJECTED: "已驳回", RECEIVED: "已入库" }[status] || status; },
+    
+    openBaseDialog(type, row = null) {
+      this.baseType = type;
+      this.baseDialogTitle = (row ? "编辑" : "新增") + (type === 'supplier' ? "供应商" : (type === 'warehouse' ? "仓库" : "商品"));
+      this.baseForm = row ? { ...row } : (type === 'supplier' ? { name: '', contact: '', expected_days: 3 } : type === 'warehouse' ? { name: '', location: '' } : { sku: '', name: '', price: 0, safety_stock: 10 });
+      this.baseDialogVisible = true;
+    },
+    async saveBase() {
+      const url = `/api/${this.baseType}s` + (this.baseForm.id ? `/${this.baseForm.id}` : "");
+      try {
+        await this.api(url, { method: this.baseForm.id ? "PUT" : "POST", body: JSON.stringify(this.baseForm) });
+        ElMessage.success("保存成功"); this.baseDialogVisible = false; this.loadAll();
+      } catch (e) { ElMessage.error("保存失败"); }
+    },
+    async deleteBase(type, id) {
+      if (!confirm("确定删除吗？")) return;
+      try { await this.api(`/api/${type}/${id}`, { method: "DELETE" }); ElMessage.success("删除成功"); this.loadAll(); } 
+      catch (e) { ElMessage.error("删除失败，可能有关联订单"); }
+    }
+  }
+}).use(ElementPlus).mount("#app");
+</script>
+</body>
+</html>

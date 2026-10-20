@@ -1,0 +1,12 @@
+# Python 环境
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# 数据库文件
+*.db
+
+# 编辑器配置
+.vscode/
+.idea/

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>库存经营分析看板</title>
+  <!-- 使用最稳定的国内 CDN -->
+  <link rel="stylesheet" href="https://cdn.staticfile.org/element-plus/2.3.14/index.css" />
+  <script src="https://cdn.staticfile.org/vue/3.3.4/vue.global.prod.js"></script>
+  <script src="https://cdn.staticfile.org/element-plus/2.3.14/index.full.min.js"></script>
+  <script src="https://cdn.staticfile.org/echarts/5.4.3/echarts.min.js"></script>
+  <style>
+    body { margin: 0; background: #f5f7fa; font-family: Arial, "Microsoft YaHei", sans-serif; }
+    .page { padding: 20px 24px; }
+    .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .top h2 { margin: 0; }
+    .top a { color: #409eff; text-decoration: none; font-weight: bold; }
+    .cards { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 16px; }
+    .card { background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,.04); cursor: pointer; transition: 0.2s; }
+    .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.1); transform: translateY(-2px); }
+    .card .label { color: #909399; font-size: 13px; margin-bottom: 8px; }
+    .card .value { font-size: 24px; font-weight: bold; color: #303133; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    .panel { background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,.04); }
+    .panel h3 { margin: 0 0 12px 0; font-size: 16px; }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
+    th, td { border: 1px solid #ebeef5; padding: 10px; }
+    th { background-color: #f5f7fa; font-weight: bold; }
+    @media (max-width: 1100px) { .cards { grid-template-columns: repeat(3, 1fr); } .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<div id="app" class="page">
+  <div class="top">
+    <h2>库存经营分析看板</h2>
+    <a href="/">← 返回流程管理</a>
+  </div>
+
+  <div class="cards">
+    <div class="card" @click="openDetail('inventory', '库存总量明细')"><div class="label">库存总量</div><div class="value">{{ summary.total_qty || 0 }}</div></div>
+    <div class="card" @click="openDetail('inventory', '库存金额明细')"><div class="label">库存金额</div><div class="value">¥{{ summary.total_value || 0 }}</div></div>
+    <div class="card" @click="openDetail('trend', '近30天出库趋势')"><div class="label">近30天出库</div><div class="value">{{ summary.outbound_30d || 0 }}</div></div>
+    <div class="card" @click="openDetail('turnover', '库存周转率说明')"><div class="label">库存周转率</div><div class="value">{{ summary.turnover_rate || 0 }}</div></div>
+    <div class="card" @click="openDetail('low', '缺货预警明细')"><div class="label">缺货预警</div><div class="value">{{ summary.low_stock_count || 0 }}</div></div>
+    <div class="card" @click="openDetail('purchase', '待审批采购单明细')"><div class="label">待审批采购单</div><div class="value">{{ summary.pending_approval_count || 0 }}</div></div>
+  </div>
+
+  <div class="grid">
+    <div class="panel"><h3>近7天出库趋势</h3><div id="trendChart" style="height: 300px;"></div></div>
+    <div class="panel"><h3>供应商到货及时率</h3><div id="supplierChart" style="height: 300px;"></div></div>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <h3>滞销品（30天无出库）</h3>
+      <table>
+        <thead><tr><th>仓库</th><th>商品</th><th>库存</th><th>金额</th></tr></thead>
+        <tbody>
+          <tr v-for="row in slow" :key="row.product_name">
+            <td>{{ row.warehouse_name }}</td><td>{{ row.product_name }}</td><td>{{ row.quantity }}</td><td>¥{{ row.stock_value }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="panel">
+      <h3>缺货预警（低于安全库存）</h3>
+      <table>
+        <thead><tr><th>仓库</th><th>商品</th><th>当前</th><th>安全</th><th>缺口</th></tr></thead>
+        <tbody>
+          <tr v-for="row in low" :key="row.product_name">
+            <td>{{ row.warehouse_name }}</td><td>{{ row.product_name }}</td><td>{{ row.quantity }}</td><td>{{ row.safety_stock }}</td><td>{{ row.gap }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 智能业务决策建议面板 -->
+  <div class="panel" style="margin-top: 16px;">
+    <h3>💡 智能业务决策建议</h3>
+    <ul style="list-style: none; padding: 0; margin: 0; line-height: 1.8;">
+      <li v-for="(item, index) in businessSuggestions" :key="index" style="margin-bottom: 12px; padding: 12px; background: #f8f9fa; border-radius: 4px; border-left: 4px solid #409eff;">
+        <span :style="{ color: item.type === 'danger' ? '#f56c6c' : (item.type === 'warning' ? '#e6a23c' : '#67c23a'), background: item.type === 'danger' ? '#fef0f0' : (item.type === 'warning' ? '#fdf6ec' : '#f0f9eb'), padding: '2px 8px', borderRadius: '4px', fontSize: '12px', marginRight: '8px', fontWeight: 'bold' }">{{ item.tag }}</span>
+        <span style="color: #606266; font-size: 14px;">{{ item.text }}</span>
+      </li>
+    </ul>
+  </div>
+
+  <!-- 弹窗组件 (必须放在 app 内部) -->
+  <el-dialog v-model="dialogVisible" :title="dialogTitle" width="800px">
+    <table v-if="dialogType === 'inventory'">
+      <thead><tr><th>仓库</th><th>商品</th><th>当前库存</th><th>库存金额</th></tr></thead>
+      <tbody><tr v-for="row in inventoryData" :key="row.id"><td>{{ row.warehouse_name }}</td><td>{{ row.product_name }}</td><td>{{ row.quantity }}</td><td>¥{{ row.stock_value }}</td></tr></tbody>
+    </table>
+    <table v-if="dialogType === 'low'">
+      <thead><tr><th>仓库</th><th>商品</th><th>当前</th><th>安全</th><th>缺口</th></tr></thead>
+      <tbody><tr v-for="row in low" :key="row.product_name"><td>{{ row.warehouse_name }}</td><td>{{ row.product_name }}</td><td>{{ row.quantity }}</td><td>{{ row.safety_stock }}</td><td>{{ row.gap }}</td></tr></tbody>
+    </table>
+    <table v-if="dialogType === 'purchase'">
+      <thead><tr><th>单号</th><th>供应商</th><th>目标仓库</th><th>金额</th></tr></thead>
+      <tbody><tr v-for="row in pendingOrders" :key="row.id"><td>PO-{{ row.id }}</td><td>{{ row.supplier_name }}</td><td>{{ row.warehouse_name }}</td><td>¥{{ row.total_amount }}</td></tr></tbody>
+    </table>
+    <div v-if="dialogType === 'trend'" style="line-height: 1.8;"><p>近30天出库总量为：<b>{{ summary.outbound_30d }}</b> 件。</p><p>详细的变化，请直接查看主页面的“近7天出库趋势”图表。</p></div>
+    <div v-if="dialogType === 'turnover'" style="line-height: 1.8;"><p>当前库存周转率为：<b>{{ summary.turnover_rate }}</b></p><p><b>业务说明：</b> 周转率 = 近30天出库总量 / 当前库存总量。指标越高，说明库存流转越快；如果过低，说明资金被库存严重占用。</p></div>
+  </el-dialog>
+</div>
+
+<script>
+const { createApp } = Vue;
+
+createApp({
+  data() {
+    return {
+      summary: {}, slow: [], low: [], suppliers: [], trend: [], charts: [],
+      inventoryData: [], purchaseData: [], dialogVisible: false, dialogTitle: "", dialogType: ""
+    };
+  },
+  computed: {
+    pendingOrders() { return this.purchaseData.filter(o => o.status === 'PENDING_APPROVAL'); },
+    businessSuggestions() {
+      let suggestions = [];
+      this.low.forEach(item => {
+        const isSlow = this.slow.some(s => s.product_name === item.product_name);
+        if (isSlow) {
+          suggestions.push({ type: 'warning', tag: '⚠️ 状态核查', text: `【${item.warehouse_name}】的【${item.product_name}】30天无出库且库存告急。建议核查该商品是否已停产或计划下架，若已淘汰请清理库存，若仍需销售请紧急补货。` });
+        } else {
+          suggestions.push({ type: 'danger', tag: '🚨 紧急补货', text: `【${item.warehouse_name}】的【${item.product_name}】库存告急（当前 ${item.quantity}，安全 ${item.safety_stock}），建议立即向供应商采购，至少补货 ${item.gap} 件。` });
+        }
+      });
+      this.slow.forEach(item => {
+        const isLow = this.low.some(l => l.product_name === item.product_name);
+        if (!isLow) {
+          suggestions.push({ type: 'warning', tag: '📉 促销清仓', text: `【${item.warehouse_name}】的【${item.product_name}】已 30 天无出库，积压资金 ¥${item.stock_value}。建议开展打折促销活动，加速资金回笼。` });
+        }
+      });
+      if (suggestions.length === 0) suggestions.push({ type: 'success', tag: '✅ 健康', text: '当前库存结构健康，无缺货与严重滞销情况，请继续保持。' });
+      return suggestions.slice(0, 6);
+    }
+  },
+  mounted() {
+    this.loadData();
+    window.addEventListener("resize", this.resizeCharts);
+  },
+  beforeUnmount() {
+    window.removeEventListener("resize", this.resizeCharts);
+    this.charts.forEach(c => c.dispose());
+  },
+  methods: {
+    async api(url) { const res = await fetch(url); if (!res.ok) throw new Error(await res.text()); return await res.json(); },
+    async loadData() {
+      this.summary = await this.api("/api/dashboard/summary"); this.slow = await this.api("/api/dashboard/slow-moving");
+      this.low = await this.api("/api/dashboard/low-stock"); this.suppliers = await this.api("/api/dashboard/supplier-timeliness");
+      this.trend = await this.api("/api/dashboard/trend"); this.inventoryData = await this.api("/api/inventory"); this.purchaseData = await this.api("/api/purchase-orders");
+      this.$nextTick(() => this.renderCharts());
+    },
+    openDetail(type, title) { this.dialogType = type; this.dialogTitle = title; this.dialogVisible = true; },
+    renderCharts() {
+      this.charts.forEach(c => c.dispose()); this.charts = [];
+      const trendChart = echarts.init(document.getElementById("trendChart"));
+      trendChart.setOption({ tooltip: { trigger: "axis" }, grid: { left: 40, right: 20, top: 20, bottom: 30 }, xAxis: { type: "category", data: this.trend.map(x => x.date) }, yAxis: { type: "value" }, series: [{ name: "出库数量", type: "bar", data: this.trend.map(x => x.quantity), itemStyle: { color: "#409EFF" } }] });
+      this.charts.push(trendChart);
+      const supplierChart = echarts.init(document.getElementById("supplierChart"));
+      supplierChart.setOption({ tooltip: { trigger: "axis" }, grid: { left: 50, right: 20, top: 20, bottom: 30 }, xAxis: { type: "category", data: this.suppliers.map(x => x.supplier_name) }, yAxis: { type: "value", min: 0, max: 100, axisLabel: { formatter: "{value}%" } }, series: [{ name: "及时率", type: "bar", data: this.suppliers.map(x => x.rate), itemStyle: { color: "#67C23A" }, label: { show: true, position: "top", formatter: "{c}%" } }] });
+      this.charts.push(supplierChart);
+    },
+    resizeCharts() { this.charts.forEach(c => c.resize()); }
+  }
+}).use(ElementPlus).mount("#app");
+</script>
+</body>
+</html>
