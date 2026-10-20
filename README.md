@@ -3,14 +3,14 @@
 针对小微零售“多仓库库存不一致、采购审批靠微信、库存周转看不清”等问题，设计了一套单据驱动、审批可配置、分析可下钻的轻量级进销存与分析组合系统。
 
 ## 项目演示
-
 ![alt text](8ddeecaa0a5f73a79e6bedcf7db1599d.png)
-![alt text](37a1658e9477694c457aae597dc1285f.png)
-![alt text](c65331c5704cc5ae2fbc5c42925ba9df.png)
 ![alt text](a337f28d656b74608a965e9300608851.png)
 ![alt text](601dfaba7fddc1561327ff428792f131.png)
+![alt text](525d8c797a8a5e3e7f134530247e60ff.png)
 ![alt text](dfd6c53bc7496f7344a7342371b22afd.png)
-![alt text](525d8c797a8a5e3e7f134530247e60ff-1.png)
+![alt text](37a1658e9477694c457aae597dc1285f.png)
+![alt text](c65331c5704cc5ae2fbc5c42925ba9df.png)
+
 
 ## ✨ 核心功能
 - **流程管理**：采购申请 -> 多级审批 -> 采购入库 -> 销售出库 -> 库存实时扣减。
